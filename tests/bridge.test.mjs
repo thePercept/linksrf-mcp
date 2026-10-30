@@ -25,7 +25,7 @@ function mockHttp(data = { activeLinks: 3, activeBoards: 2 }) {
   return { fetch, requests };
 }
 
-test('only the six read-only tools are advertised', () => {
+test('only the nine read-only tools are advertised', () => {
   const definitions = toolDefinitions();
   assert.deepEqual(definitions.map(tool => tool.name), [...TOOL_NAMES]);
   for (const tool of definitions) {
@@ -205,4 +205,32 @@ test('CLI refuses missing credentials and all token CLI arguments without printi
     assert.equal(result.stdout, '');
     assert.equal(result.stderr.includes(TOKEN), false);
   }
+});
+
+
+test('website projections omit challenges, telemetry and private headers', () => {
+  const site = {siteId: ID, hostname: 'example.com', verified: true, enabled: true,
+    status: 'awaiting_first_observation', lastObservedAt: null, verification_token: 'private-challenge', sessions: ['private-id']};
+  const result = projectResult('list_connected_websites', {sites:[site], rawEvents: ['private']});
+  assert.equal(result.sites[0].lastObservedAt, null);
+  assert.equal(result.sites[0].status, 'awaiting_first_observation');
+  assert.ok(!JSON.stringify(result).includes('private'));
+  assert.equal(projectResult('get_connected_website_status', site).settingsUrl, '/settings/domains');
+});
+
+test('website IDs and arguments cannot become an arbitrary URL or account override', () => {
+  assert.deepEqual(validateToolCall('get_connected_website_status', {id:ID}).arguments, {id:ID});
+  assert.throws(()=>validateToolCall('get_connected_website_status', {id:ID, ownerId:99}));
+  assert.throws(()=>validateToolCall('get_connected_website_status', {id:'https://evil.example'}));
+  assert.throws(()=>projectResult('get_connected_website_status', {siteId:ID,hostname:'127.0.0.1:8081',status:'active'}));
+});
+
+test('credit projection distinguishes pending credits and never copies payment information', () => {
+  const result=projectResult('get_my_ai_credit_balance', {totalRemaining:0,includedRemaining:0,processingRechargeCredits:20,
+    paymentId:'private-payment',orders:['private-order'],accountId:42});
+  assert.equal(result.totalRemaining,0);assert.equal(result.processingRechargeCredits,20);
+  assert.equal(result.rechargePage,'/dashboard/ai-credits#recharge');
+  assert.ok(!JSON.stringify(result).includes('private'));
+  assert.ok(!('totalRemaining' in projectResult('get_my_ai_credit_balance',{})));
+  assert.throws(()=>projectResult('get_my_ai_credit_balance',{totalRemaining:'secret'}));
 });

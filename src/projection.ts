@@ -30,6 +30,23 @@ function contentSummary(value: unknown, kind: 'link' | 'board'): Data {
 // credentials or operational fields) from becoming part of the public bridge contract.
 export function projectResult(name: ToolName, value: unknown): Data {
   const data = object(value);
+  if (name === 'list_connected_websites') {
+    if (!Array.isArray(data.sites) || data.sites.length > 50) throw new Error('Invalid website list');
+    return { sites: data.sites.map(website), limit: 50, scope: 'owner_only', note: 'A past observation does not establish current tracker health or valid visitor consent.' };
+  }
+  if (name === 'get_connected_website_status') return website(data);
+  if (name === 'get_my_ai_credit_balance') {
+    const output: Data = { scope: 'owner_only', rechargePage: '/dashboard/ai-credits#recharge', note: 'Processing credits are not yet spendable. No purchase or payment is initiated.' };
+    for (const key of ['totalRemaining', 'includedRemaining', 'processingRechargeCredits']) {
+      if (data[key] != null) {
+        if (!Number.isSafeInteger(data[key]) || Number(data[key]) < -1) throw new Error('Invalid credit balance');
+        output[key] = data[key];
+      }
+    }
+    if (typeof data.planCode === 'string') output.planCode = text(data.planCode, 40);
+    if (typeof data.includedResetsAt === 'string') output.includedResetsAt = text(data.includedResetsAt, 50);
+    return output;
+  }
   if (name === 'list_links' || name === 'list_boards') {
     if (!Array.isArray(data.items) || data.items.length > 100) throw new Error('Invalid remote page');
     return { items: data.items.map(item => contentSummary(item, name === 'list_links' ? 'link' : 'board')),
@@ -60,4 +77,16 @@ export function projectResult(name: ToolName, value: unknown): Data {
     || dailyEntries.reduce((sum, [, value]) => sum + count(value), 0) !== total) throw new Error('Inconsistent analytics totals');
   return { id: text(data.id, 36), windowStart: text(data.windowStart, 50), windowEnd: text(data.windowEnd, 50), recordedRequests: count(data.recordedRequests), trafficCategories: categories,
     dailyRequests: Object.fromEntries(dailyEntries.map(([key, value]) => [key, count(value)])), measurement: 'Recorded requests are not unique people or verified conversions.', scope: 'owner_only_aggregate' };
+}
+
+function website(value: unknown): Data {
+  const data = object(value);
+  const states = ['awaiting_domain_verification', 'tracking_disabled', 'awaiting_first_observation', 'telemetry_observed'];
+  if (typeof data.siteId !== 'string' || !/^[a-f0-9-]{36}$/i.test(data.siteId)
+    || typeof data.hostname !== 'string' || data.hostname.length > 253 || !/^[a-z0-9.-]+\.[a-z0-9-]+$/i.test(data.hostname)
+    || !states.includes(String(data.status))) throw new Error('Invalid website state');
+  const lastObservedAt = data.lastObservedAt == null ? null : text(data.lastObservedAt, 50);
+  if (lastObservedAt !== null && !Number.isFinite(Date.parse(lastObservedAt))) throw new Error('Invalid observation timestamp');
+  return { siteId: data.siteId, hostname: data.hostname, verified: data.verified === true, enabled: data.enabled === true,
+    status: data.status, lastObservedAt, settingsUrl: '/settings/domains', scope: 'owner_only' };
 }
