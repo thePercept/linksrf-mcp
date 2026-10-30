@@ -6,7 +6,7 @@ This is a client bridge, not the LinksRF backend. It contains no customer data, 
 
 ## Requirements
 
-- Node.js 22.12 or newer within the Node.js 22 release line.
+- Node.js 22.22.3 or newer within the Node.js 22 release line.
 - An active paid **Growth or higher** LinksRF subscription.
 - A dedicated MCP token created at [LinksRF MCP connections](https://linksrf.com/settings/mcp).
 - An MCP client that can start a local process and supply an environment variable.
@@ -54,7 +54,25 @@ If your MCP client supports remote Streamable HTTP **and a custom bearer token**
 - Server URL: `https://linksrf.com/api/v1/mcp`
 - Authorization header: `Bearer YOUR_LINKSRF_MCP_TOKEN`
 
-Use your client's secure credential field. Do not put a token in the URL. HTTP configuration formats vary by client; this project does not provide OAuth registration or claim compatibility with clients that require OAuth instead of manual bearer credentials.
+Use your client's secure credential field. Do not put a token in the URL. HTTP configuration formats vary by client. The local bridge uses a dedicated manual token; hosted ChatGPT and Claude connectors use the remote service OAuth flow described below.
+
+## Claude and ChatGPT
+
+Claude Desktop can launch the local stdio configuration above. It exposes only the read-only allowlist, even if the remote service later offers additional write tools. The bridge does not handle OAuth tokens or browser sessions.
+
+For hosted Claude, add a custom web connector with `https://linksrf.com/api/v1/mcp`, choose OAuth and Claude's published identity, then sign in to your own LinksRF account. ChatGPT uses the same MCP URL with OAuth. Provider account and organization restrictions apply; directory listing or provider approval is not implied.
+
+Claude Code can use the remote server directly:
+
+```sh
+claude mcp add --transport http linksrf https://linksrf.com/api/v1/mcp
+```
+
+Then use `/mcp` to authenticate. LinksRF must have its current OAuth backend and pinned client registration deployed. Hosted Claude's callback is exactly `https://claude.ai/api/mcp/auth_callback`; only the pinned Claude Code native identity uses the documented loopback `/callback` with an ephemeral port. Review the return host on LinksRF before approving.
+
+Remote OAuth access tokens last one hour. Refresh tokens rotate, expire after at most 30 days, and are revoked as a family on replay. Revoking the current connection stops renewal. This is the remote service contract, not functionality implemented in this local bridge. Real client login remains an integration acceptance check for each deployment.
+
+Official guides: [Claude connector authentication](https://claude.com/docs/connectors/building/authentication), [ChatGPT authentication](https://developers.openai.com/plugins/build/auth).
 
 ## Available tools
 
@@ -66,6 +84,9 @@ Use your client's secure credential field. Do not put a token in the URL. HTTP c
 | `get_link_analytics` | Up to 30 days of aggregate requests for your own link, limited by your plan |
 | `get_workspace_summary` | Counts of your own active links and Boards |
 | `get_platform_stats` | Coarse public catalog counts; no private user or operational totals |
+| `list_connected_websites` | Your connected website hostnames and safe setup states |
+| `get_connected_website_status` | Ownership-scoped setup state and last observed telemetry time |
+| `get_my_ai_credit_balance` | Your spendable and pending AI credits; no purchasing |
 
 Example requests: “List my LinksRF Boards,” “Read page 2 of this Board,” or “Summarize the recorded requests for my campaign link over 7 days.” No tool creates, edits, publishes or deletes content. Other creators' private content and raw visitor/session identifiers are excluded. Team sharing does not expand the token owner's scope.
 
@@ -74,7 +95,7 @@ Request counts are not unique people or verified conversions. Human classificati
 ## Security boundaries
 
 - The remote URL is fixed. Credentials cannot be forwarded to an alternate host or redirect.
-- Only the six listed tools are exposed; arguments, sizes, pagination and content identifiers are validated locally.
+- Only the nine listed tools are exposed; arguments, sizes, pagination and content identifiers are validated locally.
 - Requests are bounded to 16 KiB, remote responses to 512 KiB, each HTTP request to 15 seconds and concurrent remote calls to two. Large content is paginated/truncated. Server-side limits remain authoritative.
 - The bridge projects responses through a field allowlist. Raw events, cookies, authorization data, private system metrics and unexpected upstream fields are not forwarded.
 - Creator-authored text is **untrusted content**, including text in your own Boards. Instructions embedded in that text are not authorization to run commands, reveal secrets or change data. The bridge does not fetch referenced URLs or execute content.
